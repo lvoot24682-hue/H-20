@@ -1,3 +1,6 @@
+// check-wolf.js
+// يقرأ الرموز من anaayaar-ops/too عبر session-loader.js
+
 import wolfjs from 'wolf.js';
 import { io } from 'socket.io-client';
 
@@ -53,9 +56,7 @@ async function shutdown(code = 0) {
     console.log('🛑 جاري إنهاء التشغيل...');
     console.log('========================================');
 
-    // --------------------------------------------------------
     // إيقاف Socket.IO
-    // --------------------------------------------------------
     try {
         if (socket) socket.disconnect();
     } catch {}
@@ -66,23 +67,18 @@ async function shutdown(code = 0) {
         }
     } catch {}
 
-    // --------------------------------------------------------
-    // ★ إغلاق Chrome بشكل سليم لحفظ البروفايل في Cache
-    // --------------------------------------------------------
+    // لا يوجد متصفح لإغلاقه
     try {
         if (!browserClosed) {
             browserClosed = true;
-            console.log('🔒 إغلاق Chrome لحفظ التوكنات المُحدَّثة...');
             await closeSessionBrowser();
-            console.log('✅ تم إغلاق Chrome — البروفايل جاهز للحفظ في Cache');
         }
     } catch (err) {
-        console.log('⚠️ تعذر إغلاق جلسة Chrome:', err?.message || err);
+        console.log('⚠️ تعذر إغلاق الجلسة:', err?.message || err);
     }
 
     console.log(`🏁 انتهى البرنامج — Code ${code}`);
 
-    // ★ نستخدم exitCode بدل exit لضمان كتابة stdout كاملاً
     process.exitCode = code;
     setTimeout(() => process.exit(code), 1500).unref();
 }
@@ -143,13 +139,14 @@ async function initializeHandlers() {
 }
 
 // ============================================================
-// الاتصال باستخدام Google Chrome Profile
+// الاتصال باستخدام رموز GitHub
 // ============================================================
 
-async function connectUsingChromeProfile(credentials) {
+async function connectUsingGitHubTokens(credentials) {
 
     const token = credentials?.token;
     const appCheckToken = credentials?.appCheckToken || '';
+    const deviceToken = credentials?.deviceToken || '';
     const device = credentials?.device || 'web';
 
     const isAppCheckEnabled = Boolean(
@@ -157,14 +154,12 @@ async function connectUsingChromeProfile(credentials) {
     );
 
     if (!token) {
-        throw new Error(
-            'لم يتم العثور على v3APIToken في Google Chrome Profile.'
-        );
+        throw new Error('لم يتم العثور على v3APIToken في tokens.json');
     }
 
     console.log('');
     console.log('========================================');
-    console.log('🔐 بيانات جلسة Chrome');
+    console.log('🔐 بيانات الجلسة');
     console.log('========================================');
 
     console.log(`🔐 WOLF Token length: ${token.length}`);
@@ -174,6 +169,10 @@ async function connectUsingChromeProfile(credentials) {
             ? `🛡️ AppCheck length: ${appCheckToken.length}`
             : '⚠️ AppCheck Token غير موجود'
     );
+
+    if (deviceToken) {
+        console.log(`📱 DeviceToken length: ${deviceToken.length}`);
+    }
 
     console.log(`📱 Device: ${device}`);
 
@@ -256,7 +255,10 @@ async function connectUsingChromeProfile(credentials) {
                     isAppCheckEnabled ? 'true' : 'false',
 
                 appCheckToken:
-                    isAppCheckEnabled ? appCheckToken : undefined
+                    isAppCheckEnabled ? appCheckToken : undefined,
+
+                deviceToken:
+                    deviceToken || undefined
             }
         }
     );
@@ -339,9 +341,7 @@ async function connectUsingChromeProfile(credentials) {
     const ready = await waitForSubscriber(60000);
 
     if (!ready) {
-        throw new Error(
-            'WOLF اتصل لكن Authorization لم يكتمل.'
-        );
+        throw new Error('WOLF اتصل لكن Authorization لم يكتمل.');
     }
 
     console.log('');
@@ -509,26 +509,25 @@ async function main() {
     console.log('========================================');
     console.log('🐺 WOLF Heist Watcher');
     console.log('🐺 wolf.js 2.7.10');
+    console.log('📦 Tokens from: anaayaar-ops/too');
     console.log('========================================');
     console.log('');
 
     try {
 
         // ====================================================
-        // 1. قراءة Google Chrome Profile
+        // 1. قراءة الرموز من GitHub
         // ====================================================
 
-        console.log('🌐 قراءة جلسة WOLF من Chrome Profile...');
+        console.log('🌐 قراءة الرموز من GitHub (too)...');
 
         const credentials = await loadSession();
 
         if (!credentials?.token) {
-            throw new Error(
-                'لم يتم العثور على v3APIToken في جلسة Chrome.'
-            );
+            throw new Error('لم يتم العثور على v3APIToken في tokens.json');
         }
 
-        console.log('✅ تم العثور على توكن WOLF');
+        console.log('✅ تم العثور على v3APIToken');
 
         if (credentials.appCheckToken) {
             console.log(
@@ -539,15 +538,21 @@ async function main() {
             console.log('⚠️ لا يوجد App Check Token');
         }
 
+        if (credentials.deviceToken) {
+            console.log(
+                `📱 DeviceToken length: ${credentials.deviceToken.length}`
+            );
+        }
+
         console.log(
             `📱 Device: ${credentials.device || 'web'}`
         );
 
         // ====================================================
-        // 2. الاتصال باستخدام Chrome Profile
+        // 2. الاتصال باستخدام الرموز
         // ====================================================
 
-        await connectUsingChromeProfile(credentials);
+        await connectUsingGitHubTokens(credentials);
 
         // ====================================================
         // 3. تفعيل مراقبة الرسائل الخاصة
@@ -572,11 +577,9 @@ async function main() {
         startHeartbeat();
 
         // ====================================================
-        // 6. ★ إغلاق تلقائي قبل انتهاء الـ workflow
+        // 6. إغلاق تلقائي قبل انتهاء الـ workflow
         // ====================================================
 
-        // الـ workflow يقتل العملية عند 5 ساعات، لكننا نغلق بأنفسنا
-        // عند 4:55 لضمان إغلاق Chrome بأمان قبل SIGTERM
         const AUTO_SHUTDOWN_MS = (4 * 60 + 55) * 60 * 1000; // 4:55
 
         setTimeout(() => {
