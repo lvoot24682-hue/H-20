@@ -2,18 +2,16 @@ name: WOLF Event Bot
 
 on:
   schedule:
-    - cron: "0 */4 * * *"   # كل 4 ساعات
+    - cron: "0 */4 * * *"
   workflow_dispatch:
 
 concurrency:
   group: wolf-event-bot
-  cancel-in-progress: true   # يقتل النسخة السابقة تلقائيًا
+  cancel-in-progress: true
 
 jobs:
   wolf:
     runs-on: ubuntu-latest
-
-    # 5 ساعات + هامش (الحد المجاني 6 ساعات)
     timeout-minutes: 330
 
     steps:
@@ -33,66 +31,51 @@ jobs:
           cache: "npm"
 
       # ======================================================
-      # Install Dependencies
+      # Install Dependencies (بدون Playwright)
       # ======================================================
       - name: Install dependencies
         run: |
           echo "📦 Installing dependencies..."
           npm install
-          echo "🌐 Installing Playwright Chromium..."
-          npx playwright install --with-deps chromium
           echo "✅ Dependencies installed"
 
       # ======================================================
-      # ★ Restore WOLF Profile from Cache
+      # التحقق من WOLF_TOKENS_PAT
       # ======================================================
-      - name: Restore WOLF profile from cache
-        id: profile-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ./wolf-runtime
-          key: wolf-event-profile-${{ github.run_id }}
-          restore-keys: |
-            wolf-event-profile-
-
-      - name: Profile cache status
-        run: |
-          if [ -d "./wolf-runtime/profile" ] && [ -n "$(ls -A ./wolf-runtime/profile 2>/dev/null)" ]; then
-            echo "✅ Cache موجود — سيتم استخدام البروفايل المُحدَّث"
-            du -sh ./wolf-runtime/profile || true
-          else
-            echo "ℹ️ لا يوجد Cache — سيتم التنزيل من Google Drive"
-          fi
-
-      # ======================================================
-      # Check Profile URL
-      # ======================================================
-      - name: Check WOLF Profile Secret
+      - name: Verify WOLF_TOKENS_PAT
         env:
-          WOLF_PROFILE_URL: ${{ secrets.WOLF_PROFILE_URL }}
+          WOLF_TOKENS_PAT: ${{ secrets.WOLF_TOKENS_PAT }}
         run: |
-          if [ -z "$WOLF_PROFILE_URL" ]; then
-            echo "❌ WOLF_PROFILE_URL is NOT available"
+          if [ -z "$WOLF_TOKENS_PAT" ]; then
+            echo "❌ WOLF_TOKENS_PAT is NOT available"
             exit 1
           fi
-          echo "✅ WOLF_PROFILE_URL is available"
+          echo "✅ WOLF_TOKENS_PAT is available"
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token $WOLF_TOKENS_PAT" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/anaayaar-ops/too/contents/tokens.json")
+
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ Failed to access too/tokens.json: HTTP $STATUS"
+            exit 1
+          fi
+          echo "✅ Access to too/tokens.json confirmed"
 
       # ======================================================
       # Run Bot
       # ======================================================
       - name: Run WOLF Event Task
         env:
-          WOLF_PROFILE_URL: ${{ secrets.WOLF_PROFILE_URL }}
+          WOLF_TOKENS_PAT: ${{ secrets.WOLF_TOKENS_PAT }}
         run: |
           echo "========================================"
-          echo "🐺 WOLF EVENT BOT"
+          echo "🐺 WOLF EVENT BOT (tokens from anaayaar-ops/too)"
           echo "========================================"
           echo "🕐 Start: $(date -u)"
-          echo "📱 DEVICE: web"
-          echo "🛡️ APP CHECK: true"
           echo "========================================"
 
-          # ★ تشغيل البوت مع حد زمني داخلي (5 ساعات)
           RUN_SECONDS=18000
           START_TIME=$(date +%s)
           END_TIME=$((START_TIME + RUN_SECONDS))
@@ -138,16 +121,6 @@ jobs:
             echo "🐺 WOLF running | ⏱️ ${H}h ${M}m ${S}s | $(date -u)"
             sleep 30
           done
-
-      # ======================================================
-      # ★ Save WOLF Profile to Cache
-      # ======================================================
-      - name: Save WOLF profile to cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: ./wolf-runtime
-          key: wolf-event-profile-${{ github.run_id }}
 
       # ======================================================
       # Final Cleanup
